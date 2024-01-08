@@ -1,39 +1,45 @@
-from aiogram import Bot, Dispatcher, F
-from aiogram.filters import Command, CommandStart, BaseFilter
-from aiogram.types import Message
-from config_data.config import load_config
+import asyncio
+import logging
 
-BOT_TOKEN = '6615710993:AAH3zSDHg1ft2fksg2KTYPxtXn9aBGoCDas'
-config = load_config('.env')
+from aiogram import Bot, Dispatcher
+from config_data.config import Config, load_config
+from handlers import other_handlers, user_handlers
+from keyboards.main_menu import set_main_menu
 
-bot = Bot(token=config.tg_bot.token)
-dp = Dispatcher()
-
-admin_ids: list[int] = config.tg_bot.admin_ids
-
-# Собственный фильтр, проверяющий юзера на админа
-class IsAdmin(BaseFilter):
-    def __init__(self, admin_ids: list[int]) -> None:
-        # В качестве параметра фильтр принимает список с целыми числами
-        self.admin_ids = admin_ids
-
-    async def __call__(self, message: Message) -> bool:
-        return message.from_user.id in self.admin_ids
+# Инициализируем логгер
+logger = logging.getLogger(__name__)
 
 
-# Этот хэндлер будет срабатывать, если апдейт от админа
-@dp.message(IsAdmin(admin_ids))
-async def answer_if_admins_update(message: Message):
-    await message.answer(text='Вы админ')
+# Функция конфигурирования и запуска бота
+async def main():
+    # Конфигурируем логирование
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(filename)s:%(lineno)d #%(levelname)-8s '
+               '[%(asctime)s] - %(name)s - %(message)s')
 
+    # Выводим в консоль информацию о начале запуска бота
+    logger.info('Starting bot')
 
-# Этот хэндлер будет срабатывать, если апдейт не от админа
-@dp.message()
-async def answer_if_not_admins_update(message: Message):
-    print(f'{message=}')
-    await message.answer(text='Вы не админ')
+    # Загружаем конфиг в переменную config
+    config: Config = load_config()
+
+    # Инициализируем бот и диспетчер
+    bot = Bot(token=config.tg_bot.token,
+              parse_mode='HTML')
+    dp = Dispatcher()
+
+    # Настраиваем главное меню бота
+    await set_main_menu(bot)
+
+    # Регистриуем роутеры в диспетчере
+    dp.include_router(user_handlers.router)
+    dp.include_router(other_handlers.router)
+
+    # Пропускаем накопившиеся апдейты и запускаем polling
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 
 if __name__ == '__main__':
-    dp.run_polling(bot)
-
+    asyncio.run(main())
